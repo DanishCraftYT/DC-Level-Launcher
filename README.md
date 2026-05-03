@@ -9,3 +9,7 @@ a improved versaion of the original Level Launcher made by Superboo07.<br>
 * cross-platform (WIP).
 * settings editor.
   - supports type detection.
+
+## next minor release (V0.2.0):
+* support for custom maps.
+* bug fixes.
