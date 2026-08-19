@@ -251,8 +251,15 @@ def init() -> None:
                 init_olpath()
             else:
                 olexe_filepath = config_read(settings_file, "LAUNCHER", "OutlastEXEPath")
+
+                # platform specific code.
+                if sys.platform == "win32":
+                    oldir_filepath = os.path.dirname(olexe_filepath)
+                elif sys.platform == "linux":
+                    oldir_filepath = os.path.dirname(os.path.dirname(os.path.dirname(olexe_filepath)))
+
     if not os.path.exists(os.path.join(oldir_filepath, "OLGame")): # checks if the OL EXE path is correct.
-        log(log_filepath, "OLGame directory not found.", ERR_LOG_LEVEL, True, term_text_red)
+        log(log_filepath, f"OLGame directory not found: \"{oldir_filepath}\"", ERR_LOG_LEVEL, True, term_text_red)
         init_olpath()
     log(log_filepath, "Outlast Executable found.", INFO_LOG_LEVEL, config_read(settings_file, "LAUNCHER", "PrintLogs").lower() == "true", term_text_cyan)
     config_write(settings_file, "LAUNCHER", "OutlastEXEPath", olexe_filepath)
@@ -295,15 +302,20 @@ def init() -> None:
     get_command()
 
 def init_olpath() -> None:
-    global olexe_filepath
+    global olexe_filepath, oldir_filepath
     olexe_filepath = input("please specify the path to the Outlast Executable here: ")
     if not os.path.exists(olexe_filepath): # asks the user for a valid path until a valid path is given.
-        log(log_filepath, "Outlast Executable not found.", ERR_LOG_LEVEL, True, term_text_red)
+        log(log_filepath, f"Outlast Executable not found: \"{olexe_filepath}\"", ERR_LOG_LEVEL, True, term_text_red)
         init_olpath()
-    if sys.platform == "linux": # handles platform specific paths.
+    
+    # platform specific code.
+    if sys.platform == "win32":
+        oldir_filepath = os.path.dirname(olexe_filepath)
+    elif sys.platform == "linux":
         oldir_filepath = os.path.dirname(os.path.dirname(os.path.dirname(olexe_filepath)))
+
     if not os.path.exists(os.path.join(oldir_filepath, "OLGame")): # asks the user for a valid path until a valid path is given.
-        log(log_filepath, "OLGame directory not found.", ERR_LOG_LEVEL, True, term_text_red)
+        log(log_filepath, f"OLGame directory not found: \"{oldir_filepath}\"", ERR_LOG_LEVEL, True, term_text_red)
         init_olpath()
 
 # MAIN #
@@ -447,14 +459,64 @@ def command_play(arg: str):
 # string arg - name of the campaign to play.
 def command_open(arg: str):
     global oldir_filepath, launcher_dirs, log_filepath
+
+    config_names = ["config.ini", "Config.ini"]
+    config_file_name = ""
+
+    # making sure the mod and it's config file exists.
     if not os.path.exists(os.path.join(oldir_filepath, launcher_dirs["Campaigns"], arg)):
-        log(log_filepath, f"Campaign: \"{arg}\" not found. make sure you typed it correctly.")
+        log(log_filepath, f"Mod: \"{arg}\" not found. make sure you typed it correctly.", ERR_LOG_LEVEL, True, term_text_red)
         input("hit enter to continue...")
         get_command()
-    elif not os.path.exists(os.path.join(oldir_filepath, launcher_dirs["Mods"], arg, "config.ini")):
-        log(log_filepath, f"Mod: \"{arg}\" is missing a \"config.ini\" file.")
+    print(os.path.join(oldir_filepath, launcher_dirs["Campaigns"], arg))
+    for config_name in config_names:
+        if os.path.exists(os.path.join(oldir_filepath, launcher_dirs["Campaigns"], arg, config_name)):
+            config_file_name = config_name
+            break
+    else:
+        log(log_filepath, f"Mod: \"{arg}\" is missing a \"config.ini\" file.", ERR_LOG_LEVEL, True, term_text_red)
         input("hit enter to continue...")
         get_command()
+
+    campaign_path = os.path.join(oldir_filepath, launcher_dirs["Campaigns"], arg)
+    campaign_config = os.path.join(oldir_filepath, launcher_dirs["Campaigns"], arg, config_file_name)
+
+    # create backup dir if it doesn't exist.
+    if not os.path.exists(os.path.join(oldir_filepath, "backup")):
+        os.mkdir(os.path.join(oldir_filepath, "backup"))
+        log(log_filepath, "created backup folder.", NOTE_LOG_LEVEL, True, term_text_blue)
+        log(log_filepath, "copying OLGame files to backup folder.", NOTE_LOG_LEVEL, True, term_text_blue)
+        shutil.copytree(os.path.join(oldir_filepath, "OLGame"), os.path.join(oldir_filepath, "backup"), dirs_exist_ok=True)
+        log(log_filepath, "copied OLGame files to backup folder.", NOTE_LOG_LEVEL, True, term_text_blue)
+    log(log_filepath, "backup folder found.", INFO_LOG_LEVEL, config_read(settings_file, "LAUNCHER", "PrintLogs").lower() == "true", term_text_cyan)
+
+    # reads campaign config file.
+    with open(os.path.join(oldir_filepath, launcher_dirs["Campaigns"], arg, config_file_name), "r") as f:
+        campaign_config = f.readlines()
+
+    if config_read(campaign_config, "", "Localization").lower() == "true":
+        shutil.copytree(os.path.join(oldir_filepath, launcher_dirs["Campaigns"], arg, "Localization"), os.path.join(oldir_filepath, "OLGame", "Localization"), dirs_exist_ok=True)
+        log(log_filepath, "Localization mounted.", NOTE_LOG_LEVEL, True, term_text_blue)
+    
+    if config_read(campaign_config, "", "ModFileName").lower() == "none":
+        if sys.platform == "win32":
+            pass
+        elif sys.platform == "linux":
+            subprocess.run(["chmod", "+x", "OLGame.x86_64"], cwd=f"{os.path.join(oldir_filepath, "Binaries", "Linux")}")
+            subprocess.run(["./OLGame.x86_64", os.path.join(campaign_path, campaign_name, ".udk"), "-NoSteam"], cwd=f"{os.path.join(oldir_filepath, "Binaries", "Linux")}")
+    else:
+        if sys.platform == "win32":
+            pass
+        elif sys.platform == "linux":
+            subprocess.run(["chmod", "+x", "OLGame.x86_64"], cwd=f"{os.path.join(oldir_filepath, "Binaries", "Linux")}")
+            subprocess.run(["./OLGame.x86_64", os.path.join(campaign_path, config_read(campaign_config, "", "ModFileName")), "-NoSteam"], cwd=f"{os.path.join(oldir_filepath, "Binaries", "Linux")}")
+
+    # unmounts mod from game.
+    log(log_filepath, "unmounting Mod.", NOTE_LOG_LEVEL, True, term_text_blue)
+    shutil.rmtree(os.path.join(oldir_filepath, "OLGame"))
+    shutil.copytree(os.path.join(oldir_filepath, "backup"), os.path.join(oldir_filepath, "OLGame"), dirs_exist_ok=True)
+    log(log_filepath, "Mod unmounted.", NOTE_LOG_LEVEL, True, term_text_blue)
+    print() # adds empty line to terminal.
 
 def command_make():
     pass
